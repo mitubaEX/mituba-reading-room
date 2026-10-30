@@ -13,9 +13,9 @@ Private Sites RSS/Atom reader. This checkout is independent of AquaLine.
 ## Constraints
 - Hosted owner-only boundary is supplied by Sites dispatch; do not deploy this Worker directly to an unprotected origin. D1 is server-side; local preview and production data are separate.
 - DNS preflight and hostname fetch are separate operations; no application-layer DNS pinning is possible with standard Worker fetch. Platform public-egress isolation remains part of SSRF protection. Do not reuse this fetcher in a privileged local network service without DNS pinning.
-- Up to 30 feeds, 300 entries per feed fetch, newest 2000 stored articles returned to UI. Older records remain in D1; pagination/retention are future work.
+- Up to 500 feeds, 300 entries per feed fetch, newest 2000 stored articles returned to UI. Older records remain in D1; pagination/retention are future work.
 - Deduplication is within a feed by stable entry key, not across unrelated feeds. A publisher changing its GUID may create another item.
-- No scheduling, no non-RSS scraping, no full-article extraction, no feed deletion/editing, no OPML import/export, no push/email subscriptions.
+- No scheduling, no non-RSS scraping, no full-article extraction, no feed deletion/editing, no OPML export, no push/email subscriptions.
 - Access by a second real ChatGPT account requires that account for an end-to-end denial test; local anonymous and forged-header denial plus hosted policy inspection do not impersonate another account.
 
 ## Validation
@@ -38,3 +38,8 @@ Real KAI-YOU fetch on 2026-10-30: 20 entries; newest published 2026-10-29T13:21:
 ## Existing-article image repair (2026-10-30)
 Confirmed code gap: pre-thumbnail articles had NULL images until manual feed refresh; automatic enrichment only attempted 3 OG pages and did not first re-read the original feed. Added automatic feed-first backfill on the existing asynchronous enrichment call (max 2 feeds / 10 minutes, concurrent 2). It updates only existing missing image fields and preserves read/saved/version. Then the bounded OG fallback runs for remaining missing entries. Cache lookup failures now fall through to origin fetch rather than failing the image endpoint; image responses expose hit/miss diagnostics.
 Reproduction: cleared only image columns on 20 existing local KAI-YOU records, invoked enrich, observed updated=20; exact read/saved/version tuples unchanged. Proxy returned HTTP 200, image/webp, private max-age=3600, cache hit, 124384 bytes; decoded and visually inspected a 1152×648 image. Added regression test; all 8 tests and typecheck pass. This establishes a real implementation gap and local repair, not proof that it is the sole cause of the user's hosted symptom. Hosted owner-login data and image responses remain inaccessible without the user's sign-in session; private policy is unchanged.
+
+## OPML import
+Owner-scoped reusable presets, local file preview, hierarchical folders, normalized URL deduplication and result reporting. Limits: 2MB, 500 feeds, 20 outline levels, 2000 nodes, 25 registrations per request. No fetching during import. Manual refresh processes five oldest-checked feeds. Up to ten private presets. Existing articles and read/saved/version fields are untouched. Migration 0003 only adds folder and presets storage. DTD/entities and risky URLs are rejected, including conservative secret/query filters.
+
+Tests use synthetic OPML only. Reeder 5.5.1 was identified, but real subscription export remains pending its original access approval. No personal preset is in source control.

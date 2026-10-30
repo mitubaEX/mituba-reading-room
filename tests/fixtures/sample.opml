@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0"><head><title>Synthetic test data (not Reeder export)</title></head><body><outline text="ニュース"><outline text="文化"><outline text="KAI-YOU" type="rss" xmlUrl="https://kai-you.net/contents/feed.rss"/></outline><outline text="Fixture" type="rss" xmlUrl="https://example.com/rss"/><outline text="Duplicate" xmlUrl="https://EXAMPLE.com:443/rss#top"/><outline text="Unsafe fixture" xmlUrl="http://127.0.0.1/feed"/></outline></body></opml>

@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1793320764533,
+      "tag": "0000_public_chronomancer",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1793321464517,
+      "tag": "0001_complete_triathlon",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793321601014,
+      "tag": "0002_special_omega_sentinel",
+      "breakpoints": true
+    }
+  ]
+}

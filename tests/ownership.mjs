@@ -1,0 +1,1 @@
+import assert from 'node:assert/strict';const base='http://127.0.0.1:5189';const r=await fetch(base+'/api/reader',{headers:{'oai-authenticated-user-id':'other-user-test','oai-authenticated-user-email':'other@example.com'}});const d=await r.json();assert.equal(r.status,401);console.log('PASS forged identity headers rejected by local dispatch (401)');

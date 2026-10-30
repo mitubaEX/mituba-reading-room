@@ -1,0 +1,21 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import {safeUrl,publicIp,parseFeed} from '../lib/feed.ts';
+test('SSRF inputs rejected',()=>{for(const u of ['http://localhost/','http://127.0.0.1/','http://2130706433/','http://169.254.169.254/','http://[::1]/','file:///etc/passwd','https://x.internal/','https://user:pass@example.com/','https://example.com:8080/'])assert.throws(()=>safeUrl(u));for(const ip of ['127.0.0.1','10.0.0.1','169.254.169.254','::1','fc00::1','192.168.0.1','100.64.0.1','::ffff:127.0.0.1'])assert.equal(publicIp(ip),false);assert.equal(publicIp('8.8.8.8'),true)});
+test('external entities and malformed XML rejected',()=>{assert.throws(()=>parseFeed('<!DOCTYPE rss [<!ENTITY x SYSTEM "file:///etc/passwd">]><rss/>','https://example.com'));assert.throws(()=>parseFeed('<rss>','https://example.com'))});
+test('Atom and safe summaries',()=>{const d=parseFeed('<feed><title>Test</title><entry><id>one</id><title>Title</title><link href="https://example.com/a"/><summary><![CDATA[<script>bad()</script><b>Hello</b>]]></summary></entry></feed>','https://example.com');assert.equal(d.items.length,1);assert.equal(d.items[0].summary,'Hello')});
+test('KAI-YOU real captured feed',()=>{const d=parseFeed(readFileSync('/tmp/reading-room-kaiyou.xml','utf8'),'https://kai-you.net/contents/feed.rss');assert.equal(d.title,'KAI-YOU');assert.ok(d.items.length>0);assert.ok(d.items[0].published);assert.ok(!d.items[0].summary.includes('&lt;'));console.log(JSON.stringify({count:d.items.length,latest:d.items[0].published,title:d.items[0].title}))});
+import {fetchPublic} from '../lib/feed.ts';
+test('redirect to internal address rejected, bounded response, HTTP failure',async()=>{const real=globalThis.fetch;try{for(const mode of ['redirect','size','http']){globalThis.fetch=async(input:any)=>String(input).includes('cloudflare-dns.com')?Response.json({Status:0,Answer:[{type:1,data:'8.8.8.8'}]}):mode==='redirect'?new Response(null,{status:302,headers:{location:'http://169.254.169.254/'}}):mode==='size'?new Response('too large',{headers:{'content-length':'2000001'}}):new Response('bad',{status:503});await assert.rejects(fetchPublic('https://example.com/rss'))}}finally{globalThis.fetch=real}});
+import {extractImage,imageMime} from '../lib/feed.ts';
+import {pageImage} from '../lib/images.ts';
+test('image priority, RSS, Atom, HTML, missing and unsafe candidates',()=>{
+ const b='https://example.com/feed';assert.equal(extractImage({'media:thumbnail':{'@_url':'/thumb.jpg'},enclosure:{'@_url':'/full.jpg','@_type':'image/jpeg'}},b),'https://example.com/thumb.jpg');
+ assert.equal(extractImage({link:{'@_rel':'enclosure','@_type':'image/png','@_href':'/atom.png'}},b),'https://example.com/atom.png');
+ assert.equal(extractImage({summary:'<img src="https://images.example.com/a.webp" onerror="evil()">'},b),'https://images.example.com/a.webp');
+ for(const url of ['javascript:alert(1)','data:image/png;base64,x','http://localhost/a','http://169.254.169.254/a','http://[::1]/a','file:///tmp/a'])assert.equal(extractImage({'media:thumbnail':{'@_url':url}},b),null);
+ assert.equal(extractImage({},b),null);
+ assert.equal(pageImage('<meta property="og:image" content="/og.jpg"><meta name="twitter:image" content="/twitter.jpg">',b),'https://example.com/og.jpg');
+ assert.equal(pageImage('<meta property="og:image" content="http://127.0.0.1/x"><meta name="twitter:image" content="/safe.jpg">',b),'https://example.com/safe.jpg');
+ assert.equal(pageImage('<img src="/logo.png"><script>evil()</script>',b),null);
+ assert.equal(imageMime(new TextEncoder().encode('<svg onload="bad()"></svg>')),null);
+ const d=parseFeed(readFileSync('/tmp/reading-room-kaiyou.xml','utf8'),b);assert.equal(d.items.filter(x=>x.image).length,20);console.log('KAI-YOU image candidates: 20 / 20');
+});

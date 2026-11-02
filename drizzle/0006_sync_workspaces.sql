@@ -1,0 +1,10 @@
+CREATE TABLE workspaces (
+ id TEXT PRIMARY KEY NOT NULL,
+ owner TEXT NOT NULL UNIQUE,
+ key_hash TEXT NOT NULL UNIQUE,
+ generation INTEGER NOT NULL,
+ lock_id TEXT,
+ lock_until INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE mutation_guard (id INTEGER PRIMARY KEY CHECK(id=1), valid INTEGER NOT NULL CHECK(valid=1));
+INSERT INTO mutation_guard VALUES(1,1);

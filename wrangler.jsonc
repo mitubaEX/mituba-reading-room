@@ -1,0 +1,12 @@
+{
+  "$schema":"node_modules/wrangler/config-schema.json",
+  "name":"mituba-reading-room",
+  "main":"worker/index.ts",
+  "compatibility_date":"2026-05-15",
+  "compatibility_flags":["nodejs_compat"],
+  "workers_dev":false,
+  "preview_urls":false,
+  "assets":{"directory":"dist/client","binding":"ASSETS","run_worker_first":true},
+  "d1_databases":[{"binding":"DB","database_name":"mituba-reading-room","database_id":"4fb4e124-6141-4639-af9c-8db40f8e6a9a","migrations_dir":"drizzle"}],
+  "vars":{"APP_ORIGIN":"https://reader.mitubaex.com"}
+}

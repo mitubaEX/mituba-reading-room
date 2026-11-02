@@ -5,7 +5,7 @@ export const dynamic='force-dynamic';
 export async function GET(req:Request){
  const user=await getChatGPTUser();if(!user)return new Response(null,{status:401});
  const id=new URL(req.url).searchParams.get('id');if(!id||!/^[a-f0-9]{64}$/.test(id))return new Response(null,{status:400});
- const row:any=await env.DB!.prepare('SELECT image FROM articles WHERE id=? AND owner=?').bind(id,user.userId).first();
+ const row:any=await user.db!.prepare('SELECT image FROM articles WHERE id=? AND owner=?').bind(id,user.userId).first();
  if(!row?.image)return new Response(null,{status:404});
  // Authorization occurs before cache access. Cache entries are never public routes.
  const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(row.image)))).map(x=>x.toString(16).padStart(2,'0')).join('');

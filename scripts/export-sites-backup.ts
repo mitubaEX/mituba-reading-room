@@ -1,0 +1,11 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+import {validateBackup} from '../lib/backup.ts';
+const [source,destination]=process.argv.slice(2);
+if(!source||!destination)throw Error('Usage: node --experimental-strip-types scripts/export-sites-backup.ts INPUT OUTPUT');
+const snapshot=JSON.parse(readFileSync(source,'utf8'));
+const {feeds,articles,presets}=snapshot.tables;
+const owners=new Set([...feeds,...articles,...presets].map((r:any)=>r.owner));
+if(owners.size!==1)throw Error('Expected exactly one owner');
+const backup=validateBackup({format:'reading-room',version:1,feeds,articles,presets});
+writeFileSync(destination,JSON.stringify({...backup,exportedAt:snapshot.snapshotTakenAt}),{mode:0o600});
+console.log(JSON.stringify({feeds:backup.feeds.length,articles:backup.articles.length,presets:backup.presets.length,read:backup.articles.filter((a:any)=>a.read).length,saved:backup.articles.filter((a:any)=>a.saved).length}));

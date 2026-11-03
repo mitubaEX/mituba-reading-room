@@ -1,0 +1,9 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {DatabaseSync} from 'node:sqlite';import {deleteFeed} from '../lib/delete-feed.ts';
+test('feed deletion cascades only within its owner, is atomic and repeat-safe; presets remain',async()=>{
+ const sql=new DatabaseSync(':memory:');sql.exec('CREATE TABLE feeds(id TEXT PRIMARY KEY,owner TEXT);CREATE TABLE articles(id TEXT PRIMARY KEY,owner TEXT,feed TEXT,read INT,saved INT);CREATE TABLE presets(id TEXT PRIMARY KEY,owner TEXT);');
+ sql.exec("INSERT INTO feeds VALUES('a','one'),('b','one'),('c','two');INSERT INTO articles VALUES('a1','one','a',1,1),('b1','one','b',0,1),('c1','two','c',1,0);INSERT INTO presets VALUES('p','one');");
+ const db:any={prepare(q:string){return{bind(...args:any[]){return{q,args}}}},async batch(stmts:any[]){sql.exec('BEGIN');try{const r=stmts.map(s=>({meta:{changes:sql.prepare(s.q).run(...s.args).changes}}));sql.exec('COMMIT');return r}catch(e){sql.exec('ROLLBACK');throw e}}};
+ const before=sql.prepare('SELECT * FROM articles ORDER BY id').all();assert.equal((await deleteFeed(db,'two','a')).deleted,false);assert.deepEqual(sql.prepare('SELECT * FROM articles ORDER BY id').all(),before);
+ sql.exec("CREATE TRIGGER fail_delete BEFORE DELETE ON feeds WHEN OLD.id='a' BEGIN SELECT RAISE(ABORT,'failure'); END;");await assert.rejects(deleteFeed(db,'one','a'));assert.deepEqual(sql.prepare('SELECT * FROM articles ORDER BY id').all(),before);sql.exec('DROP TRIGGER fail_delete');
+ const results=await Promise.all([deleteFeed(db,'one','a'),deleteFeed(db,'one','a')]);assert.deepEqual(results.map(r=>r.deleted),[true,false]);assert.deepEqual(sql.prepare('SELECT * FROM articles ORDER BY id').all(),before.slice(1));assert.equal(sql.prepare('SELECT COUNT(*) n FROM presets').get()?.n,1);await assert.rejects(deleteFeed(db,'one',null));sql.close();
+});

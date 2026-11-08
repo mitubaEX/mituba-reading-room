@@ -5,3 +5,5 @@ export const articles = sqliteTable('articles',{id:text('id').primaryKey(),owner
 export const imageRuns=sqliteTable('image_runs',{owner:text('owner').primaryKey(),nextAllowed:integer('next_allowed').notNull()});
 
 export const presets=sqliteTable('presets',{id:text('id').primaryKey(),owner:text('owner').notNull(),name:text('name').notNull(),entries:text('entries').notNull(),created:text('created').notNull()});
+
+export const articleExpirations=sqliteTable('article_expirations',{owner:text('owner').notNull(),feed:text('feed').notNull().references(()=>feeds.id,{onDelete:'cascade'}),id:text('id').notNull(),url:text('url').notNull()},table=>[primaryKey({columns:[table.owner,table.feed,table.id]})]);

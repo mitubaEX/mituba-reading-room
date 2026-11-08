@@ -21,3 +21,15 @@ The migration file has been prepared privately. Automated browser upload was blo
 ## Verified checks
 
 Local tests cover keys/hash storage, workspace isolation, rotation and stale-write rejection, full backup roundtrip/merge/rollback, read-state retention, OPML, SSRF/XML and images. Local HTTP checks cover missing credentials and wrong mutation origin. Real KAI-YOU images rendered at desktop and 390px widths; saved state persisted after reload. Production TLS/landing, unauthenticated API rejection and creation/reload of a new workspace were checked. Production restore and cross-device use with the owner's real dataset remain pending. No payment, Clerk account, Access policy or new API credential was created.
+
+## 48-hour retention rollout (prepared, not deployed)
+
+Before deploying this change, export the workspace JSON backup and retain it privately. Inspect the production schema and migration history first (see Schema caution). Apply only the additive `drizzle/0007_article_retention.sql` after confirming that table is absent; do not run the full historical migration chain against production. It creates an empty expiration-marker table and index and deletes no articles. Build and deploy the matching Worker after the table exists.
+
+Once deployed, GET hides expired unsaved articles. The next successful refresh of each feed removes its expired unsaved rows atomically with new content, keeping saved rows. Fetch/transaction failure leaves its rows intact. Minimal ID/URL markers prevent expired items from returning even if feed dates disappear or GUIDs change; they cascade on feed deletion. v1 backup/restore carries saved articles and read state, but not these markers. Closed tabs do not refresh; no cron or hosted automation was created. With N feeds, a visible tab visits each feed about every N × 5 minutes, subject to existing request budgets.
+
+Rolling back Worker code stops cleanup but does not recover previously expired content; use the private pre-rollout backup if recovery is needed. The additive table can remain during rollback. No production data operation or deployment was performed while preparing this change.
+
+### Rollout status — 2026-11-08
+
+Source changes are ready, but production remains unchanged. A read-only Wrangler identity check still reports no `d1:write` scope; the previously denied D1 request was not retried. Obtain an authorized D1-capable session before schema inspection and backup. No production backup, migration, cleanup, or Worker deployment has been performed for retention. Tests now include the missing captured public RSS fixture locally: all 27 pass. The fixture is not committed.

@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
-import {storeFreshFeed,refreshFeed,retentionCutoff,articleTimeSql} from '../lib/article-retention.ts';
+import {storeFreshFeed,refreshFeed,refreshNextFeed,retentionCutoff,articleTimeSql} from '../lib/article-retention.ts';
 const now=Date.parse('2026-11-06T12:00:00Z');
 function fixture(){
  const sql=new DatabaseSync(':memory:');sql.exec('PRAGMA foreign_keys=ON');
@@ -55,4 +55,61 @@ test('fetch failure preserves all content and last success; a later success prun
  assert.equal(sql.prepare("SELECT success FROM feeds WHERE id='f'").get()?.success,'2026-11-01T00:00:00Z');
  assert.equal(await refreshFeed(db,'one',{id:'f',url:'https://example.com/feed'},async()=>({url:'https://example.com/feed',title:'Feed',items:[]}),now),null);
  assert.equal(sql.prepare('SELECT count(*) n FROM articles').get()?.n,0);sql.close();
+});
+
+test('manual refresh marks existing articles across the owner’s feeds, retains saved state and inserts unread new items',async()=>{
+ const{sql,db,add}=fixture(),fresh=new Date(now).toISOString();
+ sql.exec("INSERT INTO feeds(id,owner,url,title) VALUES('h','one','https://example.com/other-feed','Other feed')");
+ add('existing',fresh,fresh);add('saved','2026-10-01T00:00:00Z',fresh,1,'one','h');add('same-owner-other-feed',fresh,fresh,0,'one','h');add('other-owner',fresh,fresh,0,'two','g');
+ sql.exec('UPDATE articles SET read=0');
+ const result=await refreshNextFeed(db,'one',{markExistingRead:true,feed:'f'},async()=>({url:'https://example.com/feed',title:'Feed',items:[item('existing',fresh),item('existing',fresh),item('new',fresh)]}),now);
+ assert.equal(result.refreshedFeedId,'f');assert.deepEqual(result.errors,[]);
+ assert.deepEqual({...sql.prepare("SELECT read,version FROM articles WHERE id='existing'").get()},{read:1,version:8});
+ assert.deepEqual({...sql.prepare("SELECT read,saved,version FROM articles WHERE id='saved'").get()},{read:1,saved:1,version:8});
+ assert.equal(sql.prepare("SELECT count(*) n FROM articles WHERE url='https://example.com/existing'").get()?.n,1);
+ assert.deepEqual({...sql.prepare("SELECT read,version FROM articles WHERE url='https://example.com/new'").get()},{read:0,version:0});
+ assert.equal(sql.prepare("SELECT read FROM articles WHERE id='same-owner-other-feed'").get()?.read,1);
+ assert.equal(sql.prepare("SELECT read FROM articles WHERE id='other-owner'").get()?.read,0);
+ // Old UI state cannot overwrite the refresh's versioned transition.
+ assert.equal(sql.prepare("UPDATE articles SET read=0,version=version+1 WHERE id='existing' AND version=7").run().changes,0);
+ sql.close();
+});
+test('automatic, initial/add and unflagged refresh never mark unread rows',async()=>{
+ const{sql,db,add}=fixture(),fresh=new Date(now).toISOString();add('existing',fresh,fresh);sql.exec('UPDATE articles SET read=0');
+ const loader=async()=>({url:'https://example.com/feed',title:'Feed',items:[item('existing',fresh)]});
+ await refreshNextFeed(db,'one',{automatic:true,markExistingRead:true,feed:'g'},loader,now);
+ assert.equal(sql.prepare("SELECT read FROM articles WHERE id='existing'").get()?.read,0);
+ const skipped=await refreshNextFeed(db,'one',{automatic:true},async()=>{throw Error('cooldown must skip fetching')},now+1000);assert.equal(skipped.refreshedFeedId,null);
+ await refreshNextFeed(db,'one',{},loader,now);
+ await refreshFeed(db,'one',{id:'f',url:'https://example.com/feed'},loader,now);
+ assert.deepEqual({...sql.prepare("SELECT read,version FROM articles WHERE id='existing'").get()},{read:0,version:7});sql.close();
+});
+test('failed refresh marks nothing; later successful one-feed request atomically marks its all-feed snapshot',async()=>{
+ const{sql,db,add}=fixture(),fresh=new Date(now).toISOString();
+ sql.exec("INSERT INTO feeds(id,owner,url,title) VALUES('h','one','https://example.com/h','Other')");
+ add('existing',fresh,fresh);add('other-feed',fresh,fresh,0,'one','h');sql.exec('UPDATE articles SET read=0');
+ const failed=await refreshNextFeed(db,'one',{markExistingRead:true},async()=>{throw Error('offline')},now);assert.deepEqual(failed.errors,['offline']);
+ assert.equal(sql.prepare("SELECT read FROM articles WHERE id='existing'").get()?.read,0);
+ assert.equal(sql.prepare("SELECT read FROM articles WHERE id='other-feed'").get()?.read,0);
+ const next=await refreshNextFeed(db,'one',{markExistingRead:true},async()=>({url:'https://example.com/h',title:'Other',items:[item('new',fresh)]}),now);
+ assert.equal(next.refreshedFeedId,'h');assert.equal(sql.prepare("SELECT read FROM articles WHERE id='other-feed'").get()?.read,1);assert.equal(sql.prepare("SELECT read FROM articles WHERE id='existing'").get()?.read,1);
+ assert.equal(sql.prepare("SELECT error FROM feeds WHERE id='f'").get()?.error,'offline');
+ sql.exec('UPDATE articles SET read=0,version=version+1');
+ sql.exec("CREATE TRIGGER fail_title BEFORE UPDATE OF title ON feeds BEGIN SELECT RAISE(ABORT,'failure'); END;");
+ const before=sql.prepare('SELECT * FROM articles ORDER BY id').all();
+ const writeFailed=await refreshNextFeed(db,'one',{markExistingRead:true,feed:'f'},async()=>({url:'https://example.com/feed',title:'Feed',items:[item('new-f',fresh)]}),now);
+ assert.equal(writeFailed.errors.length,1);assert.deepEqual(sql.prepare('SELECT * FROM articles ORDER BY id').all(),before);
+ const inaccessible=await refreshNextFeed(db,'one',{markExistingRead:true,feed:'g'},async()=>{throw Error('must not fetch another owner')},now);assert.equal(inaccessible.refreshedFeedId,null);sql.close();
+});
+test('snapshot excludes arrivals during fetch and respects intervening version changes',async()=>{
+ const{sql,db,add}=fixture(),fresh=new Date(now).toISOString();sql.exec("INSERT INTO feeds(id,owner,url,title) VALUES('h','one','https://example.com/h','Other')");add('changed',fresh,fresh,0,'one','h');add('already-read',fresh,fresh);sql.exec("UPDATE articles SET read=0 WHERE id='changed'");
+ await refreshNextFeed(db,'one',{markExistingRead:true,feed:'f'},async()=>{
+  sql.exec("UPDATE articles SET saved=1,version=version+1 WHERE id='changed'");
+  add('arrival',fresh,fresh,0,'one','h');sql.exec("UPDATE articles SET read=0 WHERE id='arrival'");
+  return{url:'https://example.com/feed',title:'Feed',items:[item('new',fresh)]};
+ },now);
+ assert.deepEqual({...sql.prepare("SELECT read,saved,version FROM articles WHERE id='changed'").get()},{read:0,saved:1,version:8});
+ assert.equal(sql.prepare("SELECT read FROM articles WHERE id='arrival'").get()?.read,0);
+ assert.equal(sql.prepare("SELECT version FROM articles WHERE id='already-read'").get()?.version,7);
+ assert.equal(sql.prepare("SELECT read FROM articles WHERE url='https://example.com/new'").get()?.read,0);sql.close();
 });
